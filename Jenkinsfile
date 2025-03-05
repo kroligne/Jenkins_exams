@@ -1,10 +1,11 @@
 pipeline {
     agent any
-    
+
     environment {
         DOCKER_USER    = "kroligne" 
-        DOCKER_IMAGE   = "jenkins-exam"
         DOCKER_REGISTRY = "docker.io"
+        MOVIE_IMAGE    = "movie-service"
+        CAST_IMAGE     = "cast-service"
     }
 
     stages {
@@ -14,26 +15,53 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
-            steps {
-                script {
-                    sh """
-                       docker build -t \$DOCKER_REGISTRY/\$DOCKER_USER/\$DOCKER_IMAGE:\${BUILD_NUMBER} .
-                    """
+        stage('Build Docker Images') {
+            parallel {
+                stage('Build movie-service') {
+                    steps {
+                        dir('movie-service') {
+                            sh """
+                                docker build -t \$DOCKER_REGISTRY/\$DOCKER_USER/\$MOVIE_IMAGE:\${BUILD_NUMBER} .
+                            """
+                        }
+                    }
+                }
+                stage('Build cast-service') {
+                    steps {
+                        dir('cast-service') {
+                            sh """
+                                docker build -t \$DOCKER_REGISTRY/\$DOCKER_USER/\$CAST_IMAGE:\${BUILD_NUMBER} .
+                            """
+                        }
+                    }
                 }
             }
         }
 
-        stage('Push Docker Image') {
-            steps {
-                script {
-                    withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', 
-                                                      usernameVariable: 'USERNAME', 
-                                                      passwordVariable: 'PASSWORD')]) {
-                        sh """
-                           echo \$PASSWORD | docker login -u \$USERNAME --password-stdin \$DOCKER_REGISTRY
-                           docker push \$DOCKER_REGISTRY/\$DOCKER_USER/\$DOCKER_IMAGE:\${BUILD_NUMBER}
-                        """
+        stage('Push Docker Images') {
+            parallel {
+                stage('Push movie-service') {
+                    steps {
+                        withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', 
+                                                          usernameVariable: 'USERNAME', 
+                                                          passwordVariable: 'PASSWORD')]) {
+                            sh """
+                                echo \$PASSWORD | docker login -u \$USERNAME --password-stdin \$DOCKER_REGISTRY
+                                docker push \$DOCKER_REGISTRY/\$DOCKER_USER/\$MOVIE_IMAGE:\${BUILD_NUMBER}
+                            """
+                        }
+                    }
+                }
+                stage('Push cast-service') {
+                    steps {
+                        withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', 
+                                                          usernameVariable: 'USERNAME', 
+                                                          passwordVariable: 'PASSWORD')]) {
+                            sh """
+                                echo \$PASSWORD | docker login -u \$USERNAME --password-stdin \$DOCKER_REGISTRY
+                                docker push \$DOCKER_REGISTRY/\$DOCKER_USER/\$CAST_IMAGE:\${BUILD_NUMBER}
+                            """
+                        }
                     }
                 }
             }
@@ -43,13 +71,14 @@ pipeline {
             steps {
                 script {
                     sh """
-                       helm upgrade --install jenkins-exam ./charts \
-                         --set image.repository=\$DOCKER_REGISTRY/\$DOCKER_USER/\$DOCKER_IMAGE \
-                         --set image.tag=\${BUILD_NUMBER}
+                       helm upgrade --install jenkins-exam ./charts \\
+                         --set movieService.image.repository=\$DOCKER_REGISTRY/\$DOCKER_USER/\$MOVIE_IMAGE \\
+                         --set movieService.image.tag=\${BUILD_NUMBER} \\
+                         --set castService.image.repository=\$DOCKER_REGISTRY/\$DOCKER_USER/\$CAST_IMAGE \\
+                         --set castService.image.tag=\${BUILD_NUMBER}
                     """
                 }
             }
         }
     }
 }
-
