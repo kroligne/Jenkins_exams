@@ -1,8 +1,10 @@
 pipeline {
     agent any
-
+    
     environment {
-        DOCKERHUB_CREDENTIALS = credentials('dockerhub-credentials')
+        DOCKER_USER    = "kroligne" 
+        DOCKER_IMAGE   = "jenkins-exam"
+        DOCKER_REGISTRY = "docker.io"
     }
 
     stages {
@@ -12,32 +14,42 @@ pipeline {
             }
         }
 
-        stage('Build Docker Images') {
+        stage('Build Docker Image') {
             steps {
-                sh 'docker build -t $DOCKER_USERNAME/movie_service:latest ./movie-service'
-                sh 'docker build -t $DOCKER_USERNAME/cast_service:latest ./cast-service'
-                sh 'docker build -t $DOCKER_USERNAME/nginx:latest .'
+                script {
+                    sh """
+                       docker build -t \$DOCKER_REGISTRY/\$DOCKER_USER/\$DOCKER_IMAGE:\${BUILD_NUMBER} .
+                    """
+                }
             }
         }
 
-        stage('Push to DockerHub') {
+        stage('Push Docker Image') {
             steps {
-                withDockerRegistry([credentialsId: 'dockerhub-credentials', url: '']) {
-                    sh 'docker push $DOCKER_USERNAME/movie_service:latest'
-                    sh 'docker push $DOCKER_USERNAME/cast_service:latest'
-                    sh 'docker push $DOCKER_USERNAME/nginx:latest'
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', 
+                                                      usernameVariable: 'USERNAME', 
+                                                      passwordVariable: 'PASSWORD')]) {
+                        sh """
+                           echo \$PASSWORD | docker login -u \$USERNAME --password-stdin \$DOCKER_REGISTRY
+                           docker push \$DOCKER_REGISTRY/\$DOCKER_USER/\$DOCKER_IMAGE:\${BUILD_NUMBER}
+                        """
+                    }
                 }
             }
         }
 
         stage('Deploy to Kubernetes') {
-            when {
-                branch 'main'
-            }
             steps {
-                sh 'kubectl apply -f charts/templates/deployment.yaml'
-                sh 'kubectl apply -f charts/templates/service.yaml'
+                script {
+                    sh """
+                       helm upgrade --install jenkins-exam ./charts \
+                         --set image.repository=\$DOCKER_REGISTRY/\$DOCKER_USER/\$DOCKER_IMAGE \
+                         --set image.tag=\${BUILD_NUMBER}
+                    """
+                }
             }
         }
     }
 }
+

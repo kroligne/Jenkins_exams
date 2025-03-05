@@ -22,6 +22,11 @@ services:
       - POSTGRES_USER=movie_db_username
       - POSTGRES_PASSWORD=movie_db_password
       - POSTGRES_DB=movie_db_dev
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U movie_db_username -d movie_db_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   cast_service:
     build: ./cast-service
